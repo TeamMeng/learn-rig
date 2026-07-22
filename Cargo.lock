@@ -6687,6 +6687,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "rig",
+ "schemars 1.2.1",
+ "serde",
  "tokio",
 ]
 
