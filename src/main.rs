@@ -1,31 +1,28 @@
 use anyhow::Result;
 use rig::{
     client::{CompletionClient, Nothing},
-    completion::TypedPrompt,
+    completion::CompletionRequestBuilder,
     providers::ollama,
 };
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
-struct PersonInfo {
-    name: String,
-    age: u32,
-    city: String,
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let client = ollama::Client::new(Nothing)?;
+    let model = client.completion_model("qwen2.5:7b");
 
-    let agent = client
-        .agent("qwen2.5:7b")
-        .preamble("从用户输入中提取人员信息。")
-        .build();
+    let response = CompletionRequestBuilder::new(model, "写一首关于春天的诗")
+        .preamble("你是一位擅长写古诗的诗人".to_string())
+        .temperature(0.8)
+        .max_tokens(200)
+        .send()
+        .await?;
 
-    let answer: PersonInfo = agent.prompt_typed("我叫张伟，今年28岁，住在上海").await?;
+    if let rig::completion::AssistantContent::Text(text) = response.choice.first() {
+        println!("诗歌内容: {}\n", text);
+    }
 
-    println!("{:?}", answer);
+    println!("input token: {}", response.usage.input_tokens);
+    println!("output token: {}", response.usage.output_tokens);
 
     Ok(())
 }
