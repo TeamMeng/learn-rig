@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rig::{
     client::{CompletionClient, Nothing},
-    completion::CompletionRequestBuilder,
+    completion::{CompletionRequestBuilder, Message},
     providers::ollama,
 };
 
@@ -10,19 +10,36 @@ async fn main() -> Result<()> {
     let client = ollama::Client::new(Nothing)?;
     let model = client.completion_model("qwen2.5:7b");
 
-    let response = CompletionRequestBuilder::new(model, "写一首关于春天的诗")
-        .preamble("你是一位擅长写古诗的诗人".to_string())
-        .temperature(0.8)
-        .max_tokens(200)
+    let history = vec![
+        Message::user("你好，我想了解一下Rust语音"),
+        Message::assistant("你好！Rust 是一门注重安全性和性能的系统编程语音"),
+    ];
+
+    let response = CompletionRequestBuilder::new(model, "Rust 和 C++相比，主要优势是什么？")
+        .preamble("你是一个 Rust 编程专家，回答要精简专业".to_string())
+        .messages(history)
+        .temperature(0.3)
+        .max_tokens(500)
         .send()
         .await?;
 
-    if let rig::completion::AssistantContent::Text(text) = response.choice.first() {
-        println!("诗歌内容: {}\n", text);
+    for content in response.choice.iter() {
+        match content {
+            rig::completion::AssistantContent::Text(text) => {
+                println!("assistant answer: {}", text)
+            }
+            rig::completion::AssistantContent::ToolCall(tc) => {
+                println!("tool call: {}", tc.function.name)
+            }
+            _ => {}
+        }
     }
 
-    println!("input token: {}", response.usage.input_tokens);
-    println!("output token: {}", response.usage.output_tokens);
+    if response.usage.has_values() {
+        println!("\ninput: {}", response.usage.input_tokens);
+        println!("output: {}", response.usage.output_tokens);
+        println!("all: {}", response.usage.total_tokens);
+    }
 
     Ok(())
 }
