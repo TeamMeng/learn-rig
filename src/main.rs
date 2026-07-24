@@ -1,7 +1,8 @@
 use anyhow::Result;
 use rig::{
+    agent::AgentBuilder,
     client::{CompletionClient, Nothing},
-    completion::{CompletionRequestBuilder, Message},
+    completion::Prompt,
     providers::ollama,
 };
 
@@ -10,36 +11,19 @@ async fn main() -> Result<()> {
     let client = ollama::Client::new(Nothing)?;
     let model = client.completion_model("qwen2.5:7b");
 
-    let history = vec![
-        Message::user("你好，我想了解一下Rust语音"),
-        Message::assistant("你好！Rust 是一门注重安全性和性能的系统编程语音"),
-    ];
+    let agent = AgentBuilder::new(model)
+        .preamble(
+            "你是一名专业的餐厅点餐助手，帮助顾客了解菜单并推荐菜品。请用友好、热情的语气回答。",
+        )
+        .context("今日菜单：红烧肉（38元）、清蒸鲈鱼（68元）、麻婆豆腐（22元）、蒜蓉炒青菜（18元）、番茄蛋花汤（12元）。")
+        .context("特别提示：今日红烧肉是厨师长推荐，限量供应。所有菜品均可打包。")
+        .temperature(0.4)
+        .max_tokens(2048)
+        .build();
 
-    let response = CompletionRequestBuilder::new(model, "Rust 和 C++相比，主要优势是什么？")
-        .preamble("你是一个 Rust 编程专家，回答要精简专业".to_string())
-        .messages(history)
-        .temperature(0.3)
-        .max_tokens(500)
-        .send()
-        .await?;
+    let res = agent.prompt("你们今天有什么推荐的菜嘛？").await?;
 
-    for content in response.choice.iter() {
-        match content {
-            rig::completion::AssistantContent::Text(text) => {
-                println!("assistant answer: {}", text)
-            }
-            rig::completion::AssistantContent::ToolCall(tc) => {
-                println!("tool call: {}", tc.function.name)
-            }
-            _ => {}
-        }
-    }
-
-    if response.usage.has_values() {
-        println!("\ninput: {}", response.usage.input_tokens);
-        println!("output: {}", response.usage.output_tokens);
-        println!("all: {}", response.usage.total_tokens);
-    }
+    println!("{}", res);
 
     Ok(())
 }
