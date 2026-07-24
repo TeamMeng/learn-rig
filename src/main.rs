@@ -2,9 +2,10 @@ use anyhow::Result;
 use rig::{
     agent::AgentBuilder,
     client::{CompletionClient, Nothing},
-    completion::Prompt,
+    completion::Chat,
     providers::ollama,
 };
+use std::io::{BufRead, stdin};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -12,18 +13,27 @@ async fn main() -> Result<()> {
     let model = client.completion_model("qwen2.5:7b");
 
     let agent = AgentBuilder::new(model)
-        .preamble(
-            "你是一名专业的餐厅点餐助手，帮助顾客了解菜单并推荐菜品。请用友好、热情的语气回答。",
-        )
-        .context("今日菜单：红烧肉（38元）、清蒸鲈鱼（68元）、麻婆豆腐（22元）、蒜蓉炒青菜（18元）、番茄蛋花汤（12元）。")
-        .context("特别提示：今日红烧肉是厨师长推荐，限量供应。所有菜品均可打包。")
+        .preamble("你是一名电商平台的客服，负责解答用户关于订单、退款、物流的问题。")
+        .context("退款政策：收到商品7天内可申请无理由退款，质量问题30天内可退换。")
+        .context("物流说明：普通快递3-5天，加急快递1-2天，偏远地区可能延迟。")
         .temperature(0.4)
         .max_tokens(2048)
         .build();
 
-    let res = agent.prompt("你们今天有什么推荐的菜嘛？").await?;
+    let mut history = Vec::new();
+    let stdin = stdin();
 
-    println!("{}", res);
+    println!("客服已上线，请输入您的问题（输入 exit 退出）：");
+
+    for line in stdin.lock().lines() {
+        let input = line?;
+        if input.trim() == "exit" {
+            break;
+        }
+
+        let res = agent.chat(input, &mut history).await?;
+        println!("{}", res);
+    }
 
     Ok(())
 }
