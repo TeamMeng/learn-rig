@@ -1,39 +1,54 @@
 use anyhow::Result;
 use rig::{
     agent::AgentBuilder,
-    client::{CompletionClient, Nothing},
-    completion::Chat,
+    client::{CompletionClient, EmbeddingsClient, Nothing},
+    completion::Prompt,
+    embeddings::EmbeddingsBuilder,
     providers::ollama,
+    vector_store::in_memory_store::InMemoryVectorStore,
 };
-use std::io::{BufRead, stdin};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let client = ollama::Client::new(Nothing)?;
+
+    let embedding_model = client.embedding_model(ollama::NOMIC_EMBED_TEXT);
+
+    let documents = vec![
+        "极光系统：公司自研的智能排班系统，支持多门店、多岗位的自动化排班，可根据历史客流数据预测用工需求。",
+        "星河平台：面向中小企业的一站式数字化运营平台，集成了进销存、财务、客户关系管理三大核心模块。",
+        "蜂巢网络：公司的分布式边缘计算网络，在全国200个城市部署了边缘节点，平均延迟低于10毫秒。",
+        "猎鹰算法：公司核心的推荐算法，基于用户行为序列建模，点击率比行业基准高出35%。",
+    ];
+
+    let mut vector_store = InMemoryVectorStore::default();
+
+    let embeddings = EmbeddingsBuilder::new(embedding_model.clone())
+        .documents(documents)?
+        .build()
+        .await?;
+
+    vector_store.add_documents(embeddings);
+
+    let index = vector_store.index(embedding_model);
+
     let model = client.completion_model("qwen2.5:7b");
 
     let agent = AgentBuilder::new(model)
-        .preamble("你是一名电商平台的客服，负责解答用户关于订单、退款、物流的问题。")
-        .context("退款政策：收到商品7天内可申请无理由退款，质量问题30天内可退换。")
-        .context("物流说明：普通快递3-5天，加急快递1-2天，偏远地区可能延迟。")
-        .temperature(0.4)
-        .max_tokens(2048)
+        .preamble(
+            "你是公司的智能知识库助手，帮助员工了解公司内部产品和系统。
+            你会收到一些相关的产品说明作为参考，请基于这些说明来回答问题。
+            如果参考内容中没有相关信息，请如实告知。",
+        )
+        .dynamic_context(2, index)
+        .temperature(0.3)
         .build();
 
-    let mut history = Vec::new();
-    let stdin = stdin();
+    let res = agent.prompt("猎鹰算法是什么？效果怎么样？").await?;
+    println!("answer: {}", res);
 
-    println!("客服已上线，请输入您的问题（输入 exit 退出）：");
-
-    for line in stdin.lock().lines() {
-        let input = line?;
-        if input.trim() == "exit" {
-            break;
-        }
-
-        let res = agent.chat(input, &mut history).await?;
-        println!("{}", res);
-    }
+    let res = agent.prompt("极光系统支持哪些功能？").await?;
+    println!("answer: {}", res);
 
     Ok(())
 }
