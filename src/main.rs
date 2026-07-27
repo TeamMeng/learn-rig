@@ -8,8 +8,12 @@ use rig::{
 
 #[allow(unused)]
 #[derive(Embed, Clone)]
-struct KnowledegItem {
+struct CompanyDoc {
     id: String,
+    department: String,
+
+    #[embed]
+    title: String,
 
     #[embed]
     content: String,
@@ -22,17 +26,23 @@ async fn main() -> Result<()> {
     let model = client.embedding_model(ollama::NOMIC_EMBED_TEXT);
 
     let documents = vec![
-        KnowledegItem {
-            id: "1".to_string(),
-            content: "北京是中国的首都，有悠久的历史文化".to_string(),
+        CompanyDoc {
+            id: "hr-001".to_string(),
+            department: "人力资源".to_string(),
+            title: "员工年假申请流程".to_string(),
+            content: "员工每年享有10天带薪年假，需提前3天通过OA系统申请".to_string(),
         },
-        KnowledegItem {
-            id: "2".to_string(),
-            content: "上海是中国最大的经济中心城市".to_string(),
+        CompanyDoc {
+            id: "fin-001".to_string(),
+            department: "财务".to_string(),
+            title: "报销流程说明".to_string(),
+            content: "差旅肥报销需在出差结束后7个工作日内提交，附原始发票".to_string(),
         },
-        KnowledegItem {
-            id: "3".to_string(),
-            content: "广州是中国南方的重要商贸城市".to_string(),
+        CompanyDoc {
+            id: "it-001".to_string(),
+            department: "消息技术".to_string(),
+            title: "VPN 使用说明".to_string(),
+            content: "远程办公需使用公司VPN，下载客户端后输入工号和密码登陆".to_string(),
         },
     ];
 
@@ -41,7 +51,14 @@ async fn main() -> Result<()> {
         .build()
         .await?;
 
-    println!("成功生成 {} 个嵌入", embeddings.len());
+    for emb in &embeddings {
+        println!(
+            "文档 [{}] <{}> -> 向量维度：{}",
+            emb.0.id,
+            emb.0.title,
+            emb.1.len()
+        )
+    }
 
     Ok(())
 }
