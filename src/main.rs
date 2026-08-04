@@ -1,9 +1,11 @@
 use anyhow::Result;
+use futures_util::StreamExt;
 use rig::{
-    agent::stream_to_stdout,
+    agent::MultiTurnStreamItem,
     client::{AgentClientExt, Nothing},
+    message::Message,
     providers::ollama,
-    streaming::StreamingPrompt,
+    streaming::{StreamedAssistantContent, StreamingChat},
 };
 
 #[tokio::main]
@@ -12,11 +14,22 @@ async fn main() -> Result<()> {
 
     let agent = client
         .agent("qwen2.5:7b")
-        .preamble("你是一个厨师助手，擅长介绍中国菜的做法。")
+        .preamble("你是一个旅游顾问，帮助用户规划旅行")
         .build();
 
-    let mut stream = agent.stream_prompt("请介绍一下红烧肉的做法").await;
-    stream_to_stdout(&mut stream).await?;
+    let history: Vec<Message> = Vec::new();
+
+    let mut stream = agent
+        .stream_chat("我想去云南旅游，有什么推荐?", history.clone())
+        .await;
+
+    while let Some(chunk) = stream.next().await {
+        if let Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) =
+            chunk
+        {
+            print!("{}", text.text)
+        }
+    }
 
     Ok(())
 }
