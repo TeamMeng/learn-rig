@@ -6062,6 +6062,7 @@ name = "template"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "rig",
  "schemars 1.2.1",
  "serde",
