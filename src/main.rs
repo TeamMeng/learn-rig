@@ -4,7 +4,7 @@ use rig::{
     agent::MultiTurnStreamItem,
     client::{AgentClientExt, Nothing},
     providers::ollama,
-    streaming::{StreamedAssistantContent, StreamingPrompt},
+    streaming::{StreamedAssistantContent, StreamingPrompt, ToolCallDeltaContent},
 };
 
 #[tokio::main]
@@ -13,26 +13,38 @@ async fn main() -> Result<()> {
 
     let agent = client
         .agent("qwen2.5:7b")
-        .preamble("你是一个写作助手")
+        .preamble("你是一个查询天气的助手")
         .build();
 
-    let mut stream = agent.stream_prompt("写一篇关于熊猫的长文章").await;
+    let mut stream = agent.stream_prompt("今天北京天气怎么样？").await;
 
-    let mut count = 0;
-    while let Some(chunk) = stream.next().await {
-        if let Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) =
-            chunk
-        {
-            println!("{}", text.text);
-            count += 1;
-
-            if count >= 20 {
-                break; // stream 被 drop,底层请求随之取消
+    while let Some(result) = stream.next().await {
+        match result {
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
+                println!("{}", text.text);
             }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
+                tool_call,
+                ..
+            })) => {
+                println!(
+                    "Tool Call: name{}, arguments: {}",
+                    tool_call.function.name, tool_call.function.arguments
+                )
+            }
+            Ok(MultiTurnStreamItem::StreamAssistantItem(
+                StreamedAssistantContent::ToolCallDelta { content, .. },
+            )) => match content {
+                ToolCallDeltaContent::Name(name) => {
+                    println!("Tool name: {}", name)
+                }
+                ToolCallDeltaContent::Delta(args) => {
+                    println!("{}", args)
+                }
+            },
+            _ => {}
         }
     }
-
-    println!("It has {} chunks", count);
 
     Ok(())
 }
