@@ -3,9 +3,8 @@ use futures_util::StreamExt;
 use rig::{
     agent::MultiTurnStreamItem,
     client::{AgentClientExt, Nothing},
-    message::Message,
     providers::ollama,
-    streaming::{StreamedAssistantContent, StreamingChat},
+    streaming::{StreamedAssistantContent, StreamingPrompt},
 };
 
 #[tokio::main]
@@ -14,22 +13,26 @@ async fn main() -> Result<()> {
 
     let agent = client
         .agent("qwen2.5:7b")
-        .preamble("你是一个旅游顾问，帮助用户规划旅行")
+        .preamble("你是一个写作助手")
         .build();
 
-    let history: Vec<Message> = Vec::new();
+    let mut stream = agent.stream_prompt("写一篇关于熊猫的长文章").await;
 
-    let mut stream = agent
-        .stream_chat("我想去云南旅游，有什么推荐?", history.clone())
-        .await;
-
+    let mut count = 0;
     while let Some(chunk) = stream.next().await {
         if let Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) =
             chunk
         {
-            print!("{}", text.text)
+            println!("{}", text.text);
+            count += 1;
+
+            if count >= 20 {
+                break; // stream 被 drop,底层请求随之取消
+            }
         }
     }
+
+    println!("It has {} chunks", count);
 
     Ok(())
 }
