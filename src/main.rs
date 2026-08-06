@@ -1,50 +1,43 @@
 use anyhow::Result;
-use futures_util::StreamExt;
 use rig::{
-    agent::MultiTurnStreamItem,
     client::{AgentClientExt, Nothing},
+    memory::InMemoryConversationMemory,
     providers::ollama,
-    streaming::{StreamedAssistantContent, StreamingPrompt, ToolCallDeltaContent},
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let memory = InMemoryConversationMemory::new();
+
     let client = ollama::Client::new(Nothing)?;
 
     let agent = client
         .agent("qwen2.5:7b")
-        .preamble("你是一个查询天气的助手")
+        .preamble("你是一个友好的助手，请记住用户告诉你的消息。")
+        .memory(memory)
         .build();
 
-    let mut stream = agent.stream_prompt("今天北京天气怎么样？").await;
+    agent
+        .runner("我叫张伟 今年 21 岁")
+        .conversation("thread-1")
+        .run()
+        .await?;
 
-    while let Some(result) = stream.next().await {
-        match result {
-            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::Text(text))) => {
-                println!("{}", text.text);
-            }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(StreamedAssistantContent::ToolCall {
-                tool_call,
-                ..
-            })) => {
-                println!(
-                    "Tool Call: name{}, arguments: {}",
-                    tool_call.function.name, tool_call.function.arguments
-                )
-            }
-            Ok(MultiTurnStreamItem::StreamAssistantItem(
-                StreamedAssistantContent::ToolCallDelta { content, .. },
-            )) => match content {
-                ToolCallDeltaContent::Name(name) => {
-                    println!("Tool name: {}", name)
-                }
-                ToolCallDeltaContent::Delta(args) => {
-                    println!("{}", args)
-                }
-            },
-            _ => {}
-        }
-    }
+    let answer1 = agent
+        .runner("我叫什么名字?")
+        .conversation("thread-1")
+        .run()
+        .await?;
+
+    println!("{:?}", answer1.content);
+
+    let answer2 = agent
+        .runner("我叫什么名字?")
+        .conversation("thread-2")
+        .run()
+        .await?;
+
+    println!("{:?}", answer2.content);
 
     Ok(())
 }
