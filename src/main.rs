@@ -1,43 +1,31 @@
 use anyhow::Result;
 use rig::{
-    client::{AgentClientExt, Nothing},
-    memory::InMemoryConversationMemory,
-    providers::ollama,
+    memory::{ConversationMemory, InMemoryConversationMemory, IntoFilter, SlidingWindowMemory},
+    message::Message,
 };
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let memory = InMemoryConversationMemory::new();
+    // let client = ollama::Client::new(Nothing)?;
+    //
+    // let agent = client
+    //     .agent("qwen2.5:7b")
+    //     .preamble("你是一个的客服助手")
+    //     .memory(memory)
+    //     .build();
 
-    let client = ollama::Client::new(Nothing)?;
+    let memory = InMemoryConversationMemory::new()
+        .with_filter(SlidingWindowMemory::last_messages(20).into_filter());
 
-    let agent = client
-        .agent("qwen2.5:7b")
-        .preamble("你是一个友好的助手，请记住用户告诉你的消息。")
-        .memory(memory)
-        .build();
+    for i in 0..25 {
+        memory
+            .append("verify-window", vec![Message::user(format!("消息 {i}"))])
+            .await?;
+    }
 
-    agent
-        .runner("我叫张伟 今年 21 岁")
-        .conversation("thread-1")
-        .run()
-        .await?;
-
-    let answer1 = agent
-        .runner("我叫什么名字?")
-        .conversation("thread-1")
-        .run()
-        .await?;
-
-    println!("{:?}", answer1.content);
-
-    let answer2 = agent
-        .runner("我叫什么名字?")
-        .conversation("thread-2")
-        .run()
-        .await?;
-
-    println!("{:?}", answer2.content);
+    let visible = memory.load("verify-window").await?;
+    assert_eq!(visible.len(), 20);
+    println!("窗口加载到 {} 条消息", visible.len());
 
     Ok(())
 }
