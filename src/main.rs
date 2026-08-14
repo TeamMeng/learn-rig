@@ -1,58 +1,84 @@
 use anyhow::Result;
 use rig::{
-    client::{AgentClientExt, Nothing},
-    memory::{
-        CompactingMemory, InMemoryConversationMemory, SlidingWindowMemory, TemplateCompactor,
-    },
-    providers::ollama,
+    agent::stream_to_stdout,
+    client::{AgentClientExt, EmbeddingsClient, Nothing, ProviderClient},
+    embeddings::EmbeddingsBuilder,
+    memory::InMemoryConversationMemory,
+    providers::{ollama, openai},
+    streaming::StreamingPrompt,
+    vector_store::in_memory_store::InMemoryVectorStore,
 };
+use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let memory = CompactingMemory::new(
-        InMemoryConversationMemory::new(),
-        SlidingWindowMemory::last_messages(10),
-        TemplateCompactor::with_header("早期对话摘要").with_max_bytes(2 * 1024),
-    );
+    dotenvy::dotenv().ok();
 
-    let client = ollama::Client::new(Nothing)?;
+    let openai = openai::Client::from_env()?;
+    // 网关不支持 embedding，本地 Ollama 提供向量化
+    let ollama = ollama::Client::new(Nothing)?;
 
-    let agent = client
-        .agent("qwen2.5:7b")
-        .preamble("你是一个长期陪伴用户的生活助手，请记住用户的偏好和习惯。")
-        .memory(memory)
-        .build();
-
-    let infos = vec![
-        "我喜欢喝绿茶，不喜欢咖啡。",
-        "我住在北京，上班地点在中关村。",
-        "我有一只猫，名字叫橘子。",
-        "我每天早上7点起床，晚上11点睡觉。",
-        "我最近在学习Rust编程语言。",
-        "我喜欢周末去爬山。",
-        "我不吃辣，对海鲜过敏。",
-        "我的生日是3月15日。",
-        "我喜欢听古典音乐，特别是肖邦的作品。",
-        "我最近在读《三体》这本书。",
-        "我的工作是软件工程师，主要做后端开发。",
-        "我有一个弟弟，比我小三岁。",
+    let knowledge_base = [
+        "华星Pro手机：屏幕6.7英寸2K，晓龙8Gen3，12GB内存，256GB存储，5000mAh电池，100W快充，约45分钟充满。",
+        "128GB存储，4500mAh电池，33W快充，约75分钟充满。",
+        "华星耳机X1：主动降噪，续航30小时（含充电盒），蓝牙5.3，支持多点连接，单只重量5g。",
+        "退换货政策：收货7天内无理由退货，15天内换货，需保持原包装完好。",
+        "质保政策：手机整机保修1年，电池保修6个月，人为损坏不在保修范围。",
+        "维修收费：屏幕更换299元，电池更换99元，主板维修视情况报价。",
+        "发货时间：工作日下午3点前付款当天发货，之后次日发货，节假日顺延。",
+        "物流查询：发货后收短信通知，可在「我的订单」查看，或拨打400-888-8888。",
+        "配送范围：支持全国配送（港澳台除外），偏远地区额外3-5个工作日。",
     ];
 
-    for info in infos {
-        agent
-            .runner(info)
-            .conversation("user_longterm")
-            .run()
-            .await?;
-    }
+    let embedding_model = ollama.embedding_model_with_ndims("qwen3-embedding:0.6b", 1024);
 
-    let answer = agent
-        .runner("我喜欢喝什么饮料？我有宠物嘛？")
-        .conversation("user_longterm")
-        .run()
+    let embeddings = EmbeddingsBuilder::new(embedding_model.clone())
+        .documents(knowledge_base)?
+        .build()
         .await?;
 
-    println!("{:#?}", answer);
+    let mut vector_store = InMemoryVectorStore::default();
+
+    vector_store.add_documents(embeddings);
+
+    let index = vector_store.index(embedding_model);
+
+    let memory = Arc::new(InMemoryConversationMemory::default());
+
+    let agent = openai
+        .agent("gpt-5.4-mini")
+        .preamble(
+            "你是华星科技的智能客服助手小星。\
+            职责是解答产品规格、售后政策和物流查询等问题。\
+            回答保持友好、简洁、准确。 \
+            知识库中找不到答案时，建议用户拨打400-888-8888。 \
+            不要编造任何产品参数或政策内容。",
+        )
+        .dynamic_context(2, index)
+        .temperature(0.3)
+        .memory(memory)
+        .conversation("user_001")
+        .build();
+
+    println!("===华星科技智能客服===");
+    println!("(输入 quit 退出)的 \n");
+
+    let questions = vec![
+        "你好，华星 Pro 的电池容量是多少？",
+        "那充满电大概需要多长时间？", // 这个问题依赖上一轮的上下文
+        "华星 Lite 和 Pro 相比，主要差在哪里？",
+        "如果我买了 Pro，屏幕摔碎了，保修能换吗？",
+        "不在保修范围的话，换屏幕要多少钱？",
+    ];
+
+    for question in questions {
+        println!("用户: {}", question);
+        println!("小星");
+
+        let mut stream = agent.stream_prompt(question).await;
+        stream_to_stdout(&mut stream).await?;
+        println!("\n");
+    }
 
     Ok(())
 }
